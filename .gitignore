@@ -39,4 +39,3 @@ client_secret*.json
 
 # generated native folders
 /ios
-/android
