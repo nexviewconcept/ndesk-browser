@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "NDesk Browser",
+    "slug": "NDeskBrowser",
+    "scheme": "ndesk-browser",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0516"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "icon": "./assets/icon.png",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "NDesk Browser uses Face ID to secure private browsing sessions."
+      }
+    },
+    "android": {
+      "package": "com.ndesk.browser",
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0516",
+        "foregroundImage": "./assets/icon.png"
+      },
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "NDesk Browser uses Face ID to unlock private browsing sessions."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "abiFilters": ["arm64-v8a"]
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "40100fe4-ad1d-4c28-bbdb-2ae1d1b8923b"
+      }
+    }
+  }
+}
