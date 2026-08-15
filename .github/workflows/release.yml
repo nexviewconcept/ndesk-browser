@@ -34,10 +34,10 @@ jobs:
 
       - name: Build Android Release APK
         env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
+          NODE_OPTIONS: "--max-old-space-size=3072"
         run: |
           cd android
-          ./gradlew assembleRelease --no-daemon --stacktrace -x lintVitalRelease
+          ./gradlew assembleRelease --stacktrace -x lintVitalRelease
 
       - name: Verify JS Bundle in APK
         run: |
