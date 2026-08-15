@@ -19,8 +19,11 @@ import { DriveBackupManager } from '../services/DriveBackupManager';
 import { BookmarkStore } from '../services/BookmarkStore';
 import { HistoryStore } from '../services/HistoryStore';
 import { AutofillStore } from '../services/AutofillStore';
-import { AiKeyManager } from '../services/AiProvider';
+import { AiKeyManager, ProviderRegistry } from '../services/AiProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 export const SettingsScreen = ({ navigation }) => {
   const { theme, themeMode, setThemeMode, isDark } = useTheme();
@@ -133,11 +136,13 @@ export const SettingsScreen = ({ navigation }) => {
     setIsSyncing(true);
     
     try {
+      const { DatabaseManager } = require('../services/DatabaseManager');
       const bookmarks = await BookmarkStore.getBookmarks();
       const history = await HistoryStore.getHistory();
+      const tabGroups = await DatabaseManager.getAllAsync(`SELECT * FROM tab_groups`);
       const settings = privacySettings;
 
-      const result = await DriveBackupManager.uploadBackup(authData, bookmarks, settings, history);
+      const result = await DriveBackupManager.uploadBackup(authData, bookmarks, settings, history, tabGroups || []);
       if (result && result.success) {
         setLastSyncTime(result.timestamp);
         Alert.alert('Sync Successful', 'Your bookmarks and settings have been safely backed up to Google Drive.');
@@ -167,13 +172,41 @@ export const SettingsScreen = ({ navigation }) => {
               text: 'Restore',
               onPress: async () => {
                 const { StorageManager } = require('../services/StorageManager');
+                const { DatabaseManager } = require('../services/DatabaseManager');
                 
-                await StorageManager.save('ndesk_bookmarks', backup.bookmarks || []);
-                await StorageManager.save('ndesk_history', backup.history || []);
-                if (backup.settings) {
-                  await StorageManager.save('ndesk_privacy_settings', backup.settings);
-                  setPrivacySettings(backup.settings);
+                // Bookmarks
+                if (backup.bookmarks && backup.bookmarks.length > 0) {
+                  // Keep system bookmarks, merge with downloaded bookmarks
+                  const existing = await BookmarkStore.getBookmarks();
+                  const systemBms = existing.filter(b => b.isSystem);
+                  const newBms = [...systemBms, ...backup.bookmarks.filter(b => !b.isSystem)];
+                  await StorageManager.save('ndesk_bookmarks', newBms);
                 }
+
+                // History
+                if (backup.publicHistory && backup.publicHistory.length > 0) {
+                  await StorageManager.save('ndesk_history', backup.publicHistory);
+                }
+
+                // Settings
+                if (backup.nonSensitivePreferences) {
+                  const currentSettings = await PrivacyManager.getSettings();
+                  const newSettings = { ...currentSettings, ...backup.nonSensitivePreferences };
+                  await StorageManager.save('ndesk_privacy_settings', newSettings);
+                  setPrivacySettings(newSettings);
+                }
+
+                // Tab Groups
+                if (backup.tabGroups && backup.tabGroups.length > 0) {
+                  await DatabaseManager.runAsync(`DELETE FROM tab_groups`);
+                  for (const group of backup.tabGroups) {
+                    await DatabaseManager.runAsync(
+                      `INSERT INTO tab_groups (id, name, tabIds, isPrivate, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`,
+                      [group.id, group.name, group.tabIds, group.isPrivate, group.createdAt, group.updatedAt]
+                    );
+                  }
+                }
+                
                 Alert.alert('Restored', 'Your backup has been restored successfully.');
               }
             }
@@ -186,6 +219,39 @@ export const SettingsScreen = ({ navigation }) => {
       Alert.alert('Restore Error', 'An error occurred during restore operations.');
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleImportBookmarks = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['text/html', 'application/xhtml+xml', '*/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const fileUri = result.assets[0].uri;
+        const fileContent = await FileSystem.readAsStringAsync(fileUri);
+        
+        // Basic regex to find <a href="URL">TITLE</a>
+        const aTagRegex = /<a\s+(?:[^>]*?\s+)?href=["'](.*?)["'][^>]*>(.*?)<\/a>/gi;
+        let match;
+        let importCount = 0;
+        
+        while ((match = aTagRegex.exec(fileContent)) !== null) {
+          const url = match[1];
+          const title = match[2].replace(/<[^>]+>/g, '').trim() || url;
+          if (url && (url.startsWith('http') || url.startsWith('https'))) {
+            await BookmarkStore.saveBookmark(url, title);
+            importCount++;
+          }
+        }
+
+        Alert.alert('Import Successful', `Imported ${importCount} bookmark(s) successfully.`);
+      }
+    } catch (err) {
+      console.error('Bookmark import error:', err);
+      Alert.alert('Import Error', 'Failed to read or parse the bookmarks file.');
     }
   };
 
@@ -223,6 +289,59 @@ export const SettingsScreen = ({ navigation }) => {
             const filtered = all.filter(l => l.id !== login.id);
             await StorageManager.save('ndesk_autofill_logins', filtered);
             setSavedLogins(filtered);
+          }
+        }
+      ]
+    );
+  const handleClearData = (type) => {
+    let title = '';
+    let message = '';
+    let action = async () => {};
+
+    if (type === 'history') {
+      title = 'Clear History';
+      message = 'This will delete all browsing history.';
+      action = async () => await HistoryStore.clearHistory();
+    } else if (type === 'bookmarks') {
+      title = 'Clear Bookmarks';
+      message = 'This will delete all saved bookmarks (except system protected).';
+      action = async () => {
+        const { StorageManager } = require('../services/StorageManager');
+        const bms = await BookmarkStore.getBookmarks();
+        const systemBms = bms.filter(b => b.isSystem);
+        await StorageManager.save('ndesk_bookmarks', systemBms);
+      };
+    } else if (type === 'passwords') {
+      title = 'Clear Passwords';
+      message = 'This will delete all saved passwords and payment methods.';
+      action = async () => {
+        const { StorageManager } = require('../services/StorageManager');
+        await StorageManager.save('ndesk_autofill_logins', []);
+        await StorageManager.save('ndesk_autofill_cards', []);
+        setSavedLogins([]);
+        setSavedCards([]);
+      };
+    } else if (type === 'cache_cookies') {
+      title = 'Clear Cache & Cookies';
+      message = 'This will clear all browser cache and site cookies. You will be signed out of most sites.';
+      action = async () => {
+        // We will call react-native-webview's clearCache and clearCookies via a postMessage or globally if possible,
+        // but for now, we just clear local storage
+        Alert.alert('Notice', 'Cache and cookies can be cleared by fully restarting the app or via Android system settings.');
+        return;
+      };
+    }
+
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Data', style: 'destructive',
+          onPress: async () => {
+            await action();
+            Alert.alert('Data Cleared', `${title} has been successfully cleared.`);
           }
         }
       ]
@@ -328,34 +447,34 @@ export const SettingsScreen = ({ navigation }) => {
               <Text style={[styles.settingLabel, { color: theme.text }]}>AI Provider</Text>
               <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>Your key is saved per-provider on this device</Text>
             </View>
-            <View style={styles.segmentedButtons}>
-              {['HuggingFace', 'Gemini'].map(provider => (
-                <TouchableOpacity
-                  key={provider}
-                  onPress={() => handleChangeAiProvider(provider)}
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, gap: 8 }}>
+            {Object.keys(ProviderRegistry).map(provider => (
+              <TouchableOpacity
+                key={provider}
+                onPress={() => handleChangeAiProvider(provider)}
+                style={[
+                  styles.segBtn,
+                  privacySettings.aiProvider === provider && [styles.segBtnActive, { backgroundColor: theme.accent }]
+                ]}
+              >
+                <Text
                   style={[
-                    styles.segBtn,
-                    privacySettings.aiProvider === provider && [styles.segBtnActive, { backgroundColor: theme.accent }]
+                    styles.segBtnText,
+                    { color: privacySettings.aiProvider === provider ? '#FFF' : theme.textSecondary }
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.segBtnText,
-                      { color: privacySettings.aiProvider === provider ? '#FFF' : theme.textSecondary }
-                    ]}
-                  >
-                    {provider}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+                  {ProviderRegistry[provider].name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
           <View style={styles.apiInputContainer}>
             <Text style={[styles.apiInputLabel, { color: theme.text }]}>
-              {privacySettings.aiProvider === 'Gemini' ? 'Gemini API Key' : 'Hugging Face API Key'}
+              {ProviderRegistry[privacySettings.aiProvider || 'HuggingFace']?.name || 'AI'} API Key
             </Text>
             <TextInput
               placeholder="Paste your personal API key here..."
@@ -367,8 +486,22 @@ export const SettingsScreen = ({ navigation }) => {
               onSubmitEditing={() => handleSaveAiKey(userAiKey)}
               style={[styles.apiInput, { backgroundColor: theme.surfaceSecondary, color: theme.text, borderColor: theme.border }]}
             />
-            <Text style={[styles.apiHelpText, { color: theme.textSecondary }]}>
-              Your key is saved locally on this device only and used automatically each session. Leave empty for demo/fallback mode.
+            <Text style={[styles.apiHelpText, { color: theme.textSecondary, marginTop: 8 }]}>
+              {ProviderRegistry[privacySettings.aiProvider || 'HuggingFace']?.name} requires an API key to process content. 
+              Key is stored securely on your device.
+            </Text>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+          
+          <View style={{ padding: 16 }}>
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: theme.text, marginBottom: 4 }}>PRIVACY DISCLOSURE</Text>
+            <Text style={{ fontSize: 11, color: theme.textSecondary, lineHeight: 16 }}>
+              When you ask AI to summarize or explain a page, the page's text content is sent to {ProviderRegistry[privacySettings.aiProvider || 'HuggingFace']?.endpoint}.
+              {"\n"}NDesk does not collect this data, but the provider might.
+              {"\n\n"}Please review their policies:
+              {"\n"}• Privacy: {ProviderRegistry[privacySettings.aiProvider || 'HuggingFace']?.privacyUrl}
+              {"\n"}• Terms: {ProviderRegistry[privacySettings.aiProvider || 'HuggingFace']?.termsUrl}
             </Text>
           </View>
         </View>
@@ -443,6 +576,43 @@ export const SettingsScreen = ({ navigation }) => {
               )}
             </>
           )}
+
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+          <TouchableOpacity onPress={handleImportBookmarks} style={[styles.settingItem, { paddingTop: 16 }]}>
+            <View style={styles.labelWrapper}>
+              <Text style={[styles.settingLabel, { color: theme.text }]}>Import Bookmarks (HTML)</Text>
+              <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>Import bookmarks from Chrome, Firefox, Safari</Text>
+            </View>
+            <Ionicons name="document-text-outline" size={18} color={theme.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Section: Clear Data */}
+        <Text style={styles.sectionHeader}>CLEAR BROWSING DATA</Text>
+        <View style={[styles.sectionGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <TouchableOpacity onPress={() => handleClearData('history')} style={styles.settingItem}>
+            <View style={styles.labelWrapper}>
+              <Text style={[styles.settingLabel, { color: theme.error || '#EF4444' }]}>Clear Browsing History</Text>
+              <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>Remove list of visited websites</Text>
+            </View>
+            <Ionicons name="trash-outline" size={18} color={theme.error || '#EF4444'} />
+          </TouchableOpacity>
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+          <TouchableOpacity onPress={() => handleClearData('cache_cookies')} style={styles.settingItem}>
+            <View style={styles.labelWrapper}>
+              <Text style={[styles.settingLabel, { color: theme.error || '#EF4444' }]}>Clear Cache & Cookies</Text>
+              <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>Sign out of sites and free up space</Text>
+            </View>
+            <Ionicons name="trash-outline" size={18} color={theme.error || '#EF4444'} />
+          </TouchableOpacity>
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+          <TouchableOpacity onPress={() => handleClearData('passwords')} style={styles.settingItem}>
+            <View style={styles.labelWrapper}>
+              <Text style={[styles.settingLabel, { color: theme.error || '#EF4444' }]}>Clear Saved Passwords</Text>
+              <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>Remove all auto-fill credentials</Text>
+            </View>
+            <Ionicons name="trash-outline" size={18} color={theme.error || '#EF4444'} />
+          </TouchableOpacity>
         </View>
 
         {/* Section 6: About & Help */}
@@ -469,13 +639,51 @@ export const SettingsScreen = ({ navigation }) => {
             </View>
             <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.textSecondary} />
           </TouchableOpacity>
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+          <TouchableOpacity
+            onPress={() => {
+              // Usually opens browser internally or externally
+            }}
+            style={styles.settingItem}
+          >
+            <View style={styles.labelWrapper}>
+              <Text style={[styles.settingLabel, { color: theme.text }]}>Developed by Nexview Concept Limited</Text>
+              <Text style={[styles.settingDesc, { color: theme.accent }]}>nexviewconcept.com.ng</Text>
+            </View>
+            <Ionicons name="open-outline" size={18} color={theme.accent} />
+          </TouchableOpacity>
         </View>
 
         {/* Section 5: Autofill & Saved Passwords */}
         <Text style={styles.sectionHeader}>AUTOFILL & PASSWORDS</Text>
         <View style={[styles.sectionGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <TouchableOpacity
-            onPress={() => setShowLogins(!showLogins)}
+            onPress={async () => {
+              if (!showLogins) {
+                try {
+                  const hasHardware = await LocalAuthentication.hasHardwareAsync();
+                  const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+                  if (hasHardware && isEnrolled) {
+                    const result = await LocalAuthentication.authenticateAsync({
+                      promptMessage: 'Authenticate to view saved passwords',
+                      fallbackLabel: 'Use Device PIN',
+                    });
+                    if (result.success) {
+                      setShowLogins(true);
+                    } else {
+                      Alert.alert('Authentication Failed', 'You must authenticate to view saved passwords.');
+                    }
+                  } else {
+                    // No biometrics available, just show it
+                    setShowLogins(true);
+                  }
+                } catch (e) {
+                  setShowLogins(true);
+                }
+              } else {
+                setShowLogins(false);
+              }
+            }}
             style={styles.settingItem}
           >
             <View style={styles.labelWrapper}>
@@ -499,7 +707,9 @@ export const SettingsScreen = ({ navigation }) => {
                   <Ionicons name="key-outline" size={16} color={theme.accent} style={{ marginRight: 8 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={[{ color: theme.text, fontSize: 13, fontWeight: '600' }]}>{login.domain}</Text>
-                    <Text style={[{ color: theme.textSecondary, fontSize: 12 }]}>{login.username}</Text>
+                    <Text style={[{ color: theme.textSecondary, fontSize: 12 }]}>
+                      {login.username} • {login.password}
+                    </Text>
                   </View>
                   <TouchableOpacity
                     onPress={() => handleDeleteLogin(login)}

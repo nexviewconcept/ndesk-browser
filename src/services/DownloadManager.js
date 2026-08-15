@@ -1,4 +1,4 @@
-import { StorageManager } from './StorageManager';
+import { PreferenceStorage } from './StorageManager';
 
 const DOWNLOADS_KEY = 'ndesk_downloads';
 
@@ -61,8 +61,12 @@ export const DownloadManager = {
     const idx = downloads.findIndex(d => d.id === id);
     if (idx === -1) return null;
     downloads[idx] = { ...downloads[idx], ...patch };
-    await StorageManager.save(DOWNLOADS_KEY, downloads);
+    await this._saveDownloads(downloads);
     return downloads[idx];
+  },
+
+  async _saveDownloads(downloads) {
+    await PreferenceStorage.save(DOWNLOADS_KEY, downloads);
   },
 
   /**
@@ -70,7 +74,7 @@ export const DownloadManager = {
    */
   async deleteDownload(id) {
     const downloads = await this.getDownloads();
-    await StorageManager.save(DOWNLOADS_KEY, downloads.filter(d => d.id !== id));
+    await PreferenceStorage.save(DOWNLOADS_KEY, downloads.filter(d => d.id !== id));
     return true;
   },
 
@@ -79,7 +83,7 @@ export const DownloadManager = {
    */
   async clearCompleted() {
     const downloads = await this.getDownloads();
-    await StorageManager.save(DOWNLOADS_KEY, downloads.filter(d => d.status !== 'complete'));
+    await PreferenceStorage.save(DOWNLOADS_KEY, downloads.filter(d => d.status !== 'complete'));
     return true;
   },
 

@@ -60,7 +60,20 @@ const getAutofillInjectionScript = () => {
       }
 
       setupListeners();
-      setInterval(setupListeners, 2000);
+
+      // Replace setInterval with MutationObserver for better performance and battery life
+      const observer = new MutationObserver((mutations) => {
+        let shouldSetup = false;
+        for (const m of mutations) {
+          if (m.addedNodes.length > 0) {
+            shouldSetup = true;
+            break;
+          }
+        }
+        if (shouldSetup) setupListeners();
+      });
+      
+      observer.observe(document.body, { childList: true, subtree: true });
     })();
   `;
 };
@@ -95,12 +108,15 @@ export const BrowserView = ({
     })();
   `;
 
-  const injectedJavaScript = `
-    ${privacySettings?.adBlockEnabled ? TrackerBlocker.getAntiTrackingScript() : ''}
-    ${getAutofillInjectionScript()}
-    ${isDesktopMode ? getDesktopViewportScript() : ''}
+  const injectedJavaScript = React.useMemo(() => \`
+    \${privacySettings?.adBlockEnabled ? TrackerBlocker.getAntiTrackingScript() : ''}
+    \${getAutofillInjectionScript()}
+    \${isDesktopMode ? getDesktopViewportScript() : ''}
     true;
-  `;
+  \`, [privacySettings?.adBlockEnabled, isDesktopMode, zoomScale]);
+
+  // Memoize source to prevent reload loops when internal state changes but URL is identical
+  const source = React.useMemo(() => ({ uri: url }), [url]);
 
   const handleShouldStartLoad = (request) => {
     if (privacySettings?.adBlockEnabled && TrackerBlocker.shouldBlockRequest(request.url)) {
@@ -114,7 +130,7 @@ export const BrowserView = ({
     <View style={styles.container}>
       <WebView
         ref={webViewRef}
-        source={{ uri: url }}
+        source={source}
         onNavigationStateChange={onNavigationStateChange}
         onLoadProgress={(e) => onLoadProgress(e.nativeEvent.progress)}
         onLoadStart={onLoadStart}
@@ -125,8 +141,10 @@ export const BrowserView = ({
         style={styles.webview}
         userAgent={isDesktopMode ? DESKTOP_UA : (privacySettings?.customUserAgent || undefined)}
         thirdPartyCookiesEnabled={privacySettings?.cookiePolicy === 'all'}
+        sharedCookiesEnabled={true}
         domStorageEnabled={true}
         javaScriptEnabled={true}
+        javaScriptCanOpenWindowsAutomatically={true}
         geolocationEnabled={false}
         incognito={privacySettings?.incognitoMode}
         onFileDownload={({ nativeEvent }) => {

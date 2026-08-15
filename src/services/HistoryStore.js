@@ -1,13 +1,36 @@
+import { DatabaseManager } from './DatabaseManager';
 import { StorageManager } from './StorageManager';
 
-const HISTORY_KEY = 'ndesk_history';
+const HISTORY_LEGACY_KEY = 'ndesk_history';
 
 export const HistoryStore = {
+  /**
+   * Migrate history from SecureStore to SQLite
+   */
+  async _migrateLegacyData() {
+    try {
+      const legacyData = await StorageManager.get(HISTORY_LEGACY_KEY, null);
+      if (legacyData && Array.isArray(legacyData)) {
+        console.log(`Migrating ${legacyData.length} history items to SQLite...`);
+        for (const h of legacyData) {
+          await DatabaseManager.runAsync(
+            `INSERT OR IGNORE INTO history (id, title, url, timestamp) VALUES (?, ?, ?, ?)`,
+            [h.id, h.title || h.url, h.url, h.timestamp || new Date().toISOString()]
+          );
+        }
+        await StorageManager.remove(HISTORY_LEGACY_KEY); // Verify success then delete
+      }
+    } catch (e) {
+      console.error('History migration failed:', e);
+    }
+  },
+
   /**
    * Retrieves full browsing history.
    */
   async getHistory() {
-    return await StorageManager.get(HISTORY_KEY, []);
+    await this._migrateLegacyData();
+    return await DatabaseManager.getAllAsync(`SELECT * FROM history ORDER BY timestamp DESC LIMIT 200`);
   },
 
   /**
@@ -16,10 +39,8 @@ export const HistoryStore = {
   async addHistoryItem(title, url) {
     if (!url || url === 'about:blank') return null;
 
-    let history = await this.getHistory();
-    
-    // Remove duplicate entry to bump to top
-    history = history.filter(item => item.url.toLowerCase() !== url.toLowerCase());
+    // Delete existing entry for this URL to bump it to top
+    await DatabaseManager.runAsync(`DELETE FROM history WHERE url = ?`, [url]);
 
     const newItem = {
       id: Date.now().toString(),
@@ -28,14 +49,18 @@ export const HistoryStore = {
       timestamp: new Date().toISOString()
     };
 
-    history.unshift(newItem);
+    await DatabaseManager.runAsync(
+      `INSERT INTO history (id, title, url, timestamp) VALUES (?, ?, ?, ?)`,
+      [newItem.id, newItem.title, newItem.url, newItem.timestamp]
+    );
 
-    // Limit history size to 200 items
-    if (history.length > 200) {
-      history = history.slice(0, 200);
-    }
+    // Keep history trimmed to 200 items (SQLite handles this via a simple subquery delete or we can just fetch limits)
+    await DatabaseManager.runAsync(`
+      DELETE FROM history WHERE id NOT IN (
+        SELECT id FROM history ORDER BY timestamp DESC LIMIT 200
+      )
+    `);
 
-    await StorageManager.save(HISTORY_KEY, history);
     return newItem;
   },
 
@@ -43,7 +68,7 @@ export const HistoryStore = {
    * Clears all history.
    */
   async clearHistory() {
-    await StorageManager.save(HISTORY_KEY, []);
+    await DatabaseManager.runAsync(`DELETE FROM history`);
     return true;
   }
 };

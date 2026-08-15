@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { StorageManager } from '../services/StorageManager';
+import { DatabaseManager } from '../services/DatabaseManager';
+import { PreferenceStorage } from '../services/StorageManager';
 
 const TabContext = createContext();
 
@@ -11,24 +12,38 @@ export const TabProvider = ({ children }) => {
       title: 'New Tab',
       canGoBack: false,
       canGoForward: false,
-      isIncognito: false
+      isIncognito: false,
+      groupId: null
     }
   ]);
   const [activeTabId, setActiveTabId] = useState('1');
+  const [tabGroups, setTabGroups] = useState([]);
   const [hasLoaded, setHasLoaded] = useState(false);
 
   // Load tabs on startup
   useEffect(() => {
     const loadTabs = async () => {
       try {
-        const savedTabs = await StorageManager.get('ndesk_open_tabs', null);
-        const savedActiveId = await StorageManager.get('ndesk_active_tab_id', null);
+        const savedTabs = await DatabaseManager.getAllAsync(`SELECT * FROM tabs WHERE isIncognito = 0 ORDER BY createdAt ASC`);
+        const savedGroups = await DatabaseManager.getAllAsync(`SELECT * FROM tab_groups ORDER BY createdAt ASC`);
+        const savedActiveId = await PreferenceStorage.get('ndesk_active_tab_id', null);
+        
+        if (savedGroups && savedGroups.length > 0) {
+          setTabGroups(savedGroups);
+        }
+
         if (savedTabs && savedTabs.length > 0) {
-          setTabs(savedTabs);
-          if (savedActiveId && savedTabs.some(t => t.id === savedActiveId)) {
+          const parsedTabs = savedTabs.map(t => ({
+            ...t,
+            canGoBack: Boolean(t.canGoBack),
+            canGoForward: Boolean(t.canGoForward),
+            isIncognito: Boolean(t.isIncognito)
+          }));
+          setTabs(parsedTabs);
+          if (savedActiveId && parsedTabs.some(t => t.id === savedActiveId)) {
             setActiveTabId(savedActiveId);
           } else {
-            setActiveTabId(savedTabs[0].id);
+            setActiveTabId(parsedTabs[0].id);
           }
         }
       } catch (e) {
@@ -47,16 +62,25 @@ export const TabProvider = ({ children }) => {
       try {
         const normalTabs = tabs.filter(t => !t.isIncognito);
         if (normalTabs.length > 0) {
-          await StorageManager.save('ndesk_open_tabs', normalTabs);
+          // In a real app we'd update/insert specifically, for simplicity here we just replace them.
+          // Since tabs are small, we can just delete all normal tabs and re-insert them.
+          await DatabaseManager.runAsync(`DELETE FROM tabs WHERE isIncognito = 0`);
+          for (const t of normalTabs) {
+            await DatabaseManager.runAsync(
+              `INSERT INTO tabs (id, url, title, canGoBack, canGoForward, isIncognito, groupId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+              [t.id, t.url, t.title, t.canGoBack ? 1 : 0, t.canGoForward ? 1 : 0, t.groupId || null, new Date().toISOString(), new Date().toISOString()]
+            );
+          }
+
           const activeTabObj = tabs.find(t => t.id === activeTabId);
           if (activeTabObj && !activeTabObj.isIncognito) {
-            await StorageManager.save('ndesk_active_tab_id', activeTabId);
+            await PreferenceStorage.save('ndesk_active_tab_id', activeTabId);
           } else {
-            await StorageManager.save('ndesk_active_tab_id', normalTabs[0].id);
+            await PreferenceStorage.save('ndesk_active_tab_id', normalTabs[0].id);
           }
         } else {
-          await StorageManager.remove('ndesk_open_tabs');
-          await StorageManager.remove('ndesk_active_tab_id');
+          await DatabaseManager.runAsync(`DELETE FROM tabs WHERE isIncognito = 0`);
+          await PreferenceStorage.remove('ndesk_active_tab_id');
         }
       } catch (e) {
         console.error('Error saving tabs state:', e);
@@ -68,7 +92,7 @@ export const TabProvider = ({ children }) => {
   /**
    * Adds a new browser tab and sets it as active.
    */
-  const addTab = (url = 'about:blank', isIncognito = false) => {
+  const addTab = (url = 'about:blank', isIncognito = false, groupId = null) => {
     const newId = Date.now().toString();
     const newTab = {
       id: newId,
@@ -76,11 +100,45 @@ export const TabProvider = ({ children }) => {
       title: isIncognito ? 'Private Tab' : 'New Tab',
       canGoBack: false,
       canGoForward: false,
-      isIncognito
+      isIncognito,
+      groupId
     };
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
     return newId;
+  };
+
+  /**
+   * Creates a new Tab Group and assigns currently active tab to it.
+   */
+  const createTabGroup = async (name) => {
+    const groupId = Date.now().toString();
+    const newGroup = {
+      id: groupId,
+      name,
+      tabIds: JSON.stringify([activeTabId]),
+      isPrivate: activeTab?.isIncognito ? 1 : 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    setTabGroups(prev => [...prev, newGroup]);
+    updateTabState(activeTabId, { groupId });
+
+    await DatabaseManager.runAsync(
+      `INSERT INTO tab_groups (id, name, tabIds, isPrivate, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`,
+      [newGroup.id, newGroup.name, newGroup.tabIds, newGroup.isPrivate, newGroup.createdAt, newGroup.updatedAt]
+    );
+    return groupId;
+  };
+
+  /**
+   * Deletes a Tab Group (un-groups tabs).
+   */
+  const deleteTabGroup = async (groupId) => {
+    setTabGroups(prev => prev.filter(g => g.id !== groupId));
+    setTabs(prev => prev.map(t => t.groupId === groupId ? { ...t, groupId: null } : t));
+    await DatabaseManager.runAsync(`DELETE FROM tab_groups WHERE id = ?`, [groupId]);
   };
 
   /**
@@ -138,12 +196,15 @@ export const TabProvider = ({ children }) => {
     <TabContext.Provider
       value={{
         tabs,
+        tabGroups,
         activeTabId,
         activeTab,
         addTab,
         closeTab,
         updateTabState,
         setActiveTabId,
+        createTabGroup,
+        deleteTabGroup,
         isIncognitoUnlocked,
         setIncognitoUnlocked
       }}

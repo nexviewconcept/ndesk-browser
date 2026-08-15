@@ -1,5 +1,5 @@
 import { HuggingFaceProvider } from './HuggingFaceProvider';
-import { StorageManager } from './StorageManager';
+import { SecureStorage, PreferenceStorage } from './StorageManager';
 
 // General fallback API keys that work out-of-the-box for demo/limited usage.
 // Users can override these with their personal keys in Settings,
@@ -8,9 +8,104 @@ const GENERAL_GEMINI_KEY = 'AIzaSyBzL4v_demo_ndesk_general_fallback';
 const GENERAL_HF_KEY = 'hf_demo_ndesk_general_fallback_token';
 
 // Persistent storage keys for per-user overrides
-const USER_GEMINI_KEY_STORE = 'ndesk_user_gemini_key';
-const USER_HF_KEY_STORE = 'ndesk_user_hf_key';
+const USER_KEY_STORE_PREFIX = 'ndesk_user_key_';
 const USER_AI_PROVIDER_STORE = 'ndesk_user_ai_provider';
+
+export const ProviderRegistry = {
+  HuggingFace: {
+    name: 'HuggingFace',
+    endpoint: 'https://api-inference.huggingface.co/models/...',
+    privacyUrl: 'https://huggingface.co/privacy',
+    termsUrl: 'https://huggingface.co/terms',
+  },
+  Gemini: {
+    name: 'Google Gemini',
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/...',
+    privacyUrl: 'https://policies.google.com/privacy',
+    termsUrl: 'https://policies.google.com/terms',
+  },
+  Groq: {
+    name: 'Groq',
+    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    model: 'llama3-8b-8192',
+    privacyUrl: 'https://groq.com/privacy-policy/',
+    termsUrl: 'https://groq.com/terms-of-use/',
+  },
+  Cerebras: {
+    name: 'Cerebras',
+    endpoint: 'https://api.cerebras.ai/v1/chat/completions',
+    model: 'llama3.1-8b',
+    privacyUrl: 'https://cerebras.ai/privacy-policy/',
+    termsUrl: 'https://cerebras.ai/terms-of-use/',
+  },
+  OpenRouter: {
+    name: 'OpenRouter',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    model: 'meta-llama/llama-3-8b-instruct:free',
+    privacyUrl: 'https://openrouter.ai/privacy',
+    termsUrl: 'https://openrouter.ai/terms',
+  },
+  Mistral: {
+    name: 'Mistral AI',
+    endpoint: 'https://api.mistral.ai/v1/chat/completions',
+    model: 'mistral-tiny',
+    privacyUrl: 'https://mistral.ai/privacy/',
+    termsUrl: 'https://mistral.ai/terms/',
+  },
+  NVIDIANIM: {
+    name: 'NVIDIA NIM',
+    endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    model: 'meta/llama3-8b-instruct',
+    privacyUrl: 'https://www.nvidia.com/en-us/about-nvidia/privacy-policy/',
+    termsUrl: 'https://www.nvidia.com/en-us/about-nvidia/terms-of-service/',
+  },
+  GitHubModels: {
+    name: 'GitHub Models',
+    endpoint: 'https://models.inference.ai.azure.com/chat/completions',
+    model: 'gpt-4o-mini',
+    privacyUrl: 'https://docs.github.com/en/site-policy/privacy-policies',
+    termsUrl: 'https://docs.github.com/en/site-policy/github-terms',
+  }
+};
+
+const OpenAICompatibleProvider = {
+  async askQuestion(providerConfig, message, context, apiKey) {
+    if (!apiKey) {
+      return `👋 Hello! I am NDesk AI.\n\nTo enable cloud-powered replies via ${providerConfig.name}, go to **Settings → AI Assistant** and add your personal API Key.`;
+    }
+
+    try {
+      const response = await fetch(providerConfig.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          ...(providerConfig.name === 'OpenRouter' ? {
+             'HTTP-Referer': 'https://ndesk.io',
+             'X-Title': 'NDesk Browser'
+          } : {})
+        },
+        body: JSON.stringify({
+          model: providerConfig.model,
+          messages: [
+            { role: 'system', content: `You are NDesk AI, a helpful, privacy-oriented assistant integrated inside NDesk Browser. Use the context below to help answer the user's question about the webpage they are reading.\nContext: ${context || 'None'}` },
+            { role: 'user', content: message }
+          ]
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const text = result.choices?.[0]?.message?.content;
+        if (text) return text.trim();
+      }
+      return `${providerConfig.name} API Error: Failed to generate content. Status Code: ${response.status}`;
+    } catch (e) {
+      console.error(`${providerConfig.name} API Provider Error:`, e);
+      return `Could not reach ${providerConfig.name} API. Please verify your internet connection and API key.`;
+    }
+  }
+};
 
 export const GeminiProvider = {
   /**
@@ -72,8 +167,8 @@ export const AiKeyManager = {
    * Keys are stored per-device and never transmitted to NDesk servers.
    */
   async saveUserKey(provider, key) {
-    const storeKey = provider === 'Gemini' ? USER_GEMINI_KEY_STORE : USER_HF_KEY_STORE;
-    await StorageManager.save(storeKey, key);
+    const storeKey = USER_KEY_STORE_PREFIX + provider;
+    await SecureStorage.save(storeKey, key);
   },
 
   /**
@@ -81,32 +176,34 @@ export const AiKeyManager = {
    * Falls back to the general/demo key if none is saved.
    */
   async getUserKey(provider) {
-    const storeKey = provider === 'Gemini' ? USER_GEMINI_KEY_STORE : USER_HF_KEY_STORE;
-    const userKey = await StorageManager.get(storeKey, null);
+    const storeKey = USER_KEY_STORE_PREFIX + provider;
+    const userKey = await SecureStorage.get(storeKey, null);
     if (userKey) return userKey;
-    return provider === 'Gemini' ? GENERAL_GEMINI_KEY : GENERAL_HF_KEY;
+    if (provider === 'Gemini') return GENERAL_GEMINI_KEY;
+    if (provider === 'HuggingFace') return GENERAL_HF_KEY;
+    return ''; // Other providers don't have built-in fallbacks
   },
 
   /**
    * Saves the user's preferred AI provider selection.
    */
   async savePreferredProvider(provider) {
-    await StorageManager.save(USER_AI_PROVIDER_STORE, provider);
+    await PreferenceStorage.save(USER_AI_PROVIDER_STORE, provider);
   },
 
   /**
    * Gets the user's preferred AI provider.
    */
   async getPreferredProvider() {
-    return await StorageManager.get(USER_AI_PROVIDER_STORE, 'HuggingFace');
+    return await PreferenceStorage.get(USER_AI_PROVIDER_STORE, 'HuggingFace');
   },
 
   /**
    * Clears a user's stored API key (reset to general/fallback).
    */
   async clearUserKey(provider) {
-    const storeKey = provider === 'Gemini' ? USER_GEMINI_KEY_STORE : USER_HF_KEY_STORE;
-    await StorageManager.remove(storeKey);
+    const storeKey = USER_KEY_STORE_PREFIX + provider;
+    await SecureStorage.remove(storeKey);
   }
 };
 
@@ -125,7 +222,15 @@ export const AiProvider = {
     if (provider === 'Gemini') {
       return await GeminiProvider.askQuestion(message, context, resolvedKey);
     }
-    // HuggingFace Provider
-    return await HuggingFaceProvider.askQuestion(message, context, resolvedKey);
+    if (provider === 'HuggingFace') {
+      return await HuggingFaceProvider.askQuestion(message, context, resolvedKey);
+    }
+    
+    // Check if it's an OpenAI compatible REST provider
+    if (ProviderRegistry[provider]) {
+      return await OpenAICompatibleProvider.askQuestion(ProviderRegistry[provider], message, context, resolvedKey);
+    }
+    
+    return 'Error: Unknown AI Provider selected.';
   }
 };

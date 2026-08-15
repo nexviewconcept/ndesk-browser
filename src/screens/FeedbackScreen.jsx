@@ -27,21 +27,31 @@ export const FeedbackScreen = ({ navigation }) => {
       const response = await fetch(SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        redirect: 'follow',
         body: JSON.stringify({
           category,
           message,
           email,
-          appVersion: '1.0.0'
+          appVersion: '1.0.2'
         })
       });
       
-      const result = await response.json();
+      const responseText = await response.text();
+      
+      // Fix Apps Script `<` parse error: Google Apps Script returns HTML on error
+      if (responseText.trim().startsWith('<')) {
+        console.error('GAS HTML Error:', responseText);
+        throw new Error('Server returned an HTML error page instead of JSON. Check the Apps Script deployment.');
+      }
+      
+      const result = JSON.parse(responseText);
+      
       if (result.status === 'success') {
         Alert.alert('Success', 'Feedback submitted successfully!');
         setMessage('');
         navigation.goBack();
       } else {
-        throw new Error('Submission failed');
+        throw new Error(result.message || 'Submission failed');
       }
     } catch (e) {
       console.error(e);

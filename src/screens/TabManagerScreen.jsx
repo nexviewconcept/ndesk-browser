@@ -3,10 +3,13 @@ import {
   StyleSheet,
   View,
   Text,
-  FlatList,
+  ScrollView,
   TouchableOpacity,
   Dimensions,
-  StatusBar
+  StatusBar,
+  Alert,
+  Modal,
+  TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
@@ -19,7 +22,10 @@ const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
 export const TabManagerScreen = ({ navigation }) => {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const { tabs, activeTabId, setActiveTabId, addTab, closeTab } = useTabs();
+  const { tabs, tabGroups, activeTabId, setActiveTabId, addTab, closeTab, createTabGroup, deleteTabGroup } = useTabs();
+
+  const [isGroupModalVisible, setGroupModalVisible] = React.useState(false);
+  const [newGroupName, setNewGroupName] = React.useState('');
 
   const handleSelectTab = (id) => {
     setActiveTabId(id);
@@ -79,6 +85,21 @@ export const TabManagerScreen = ({ navigation }) => {
     );
   };
 
+  const handleGroupPrompt = () => {
+    setNewGroupName('');
+    setGroupModalVisible(true);
+  };
+
+  const submitNewGroup = () => {
+    if (newGroupName && newGroupName.trim()) {
+      createTabGroup(newGroupName.trim());
+    }
+    setGroupModalVisible(false);
+  };
+
+  const groupedTabs = tabs.filter(t => t.groupId);
+  const looseTabs = tabs.filter(t => !t.groupId);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
@@ -93,17 +114,47 @@ export const TabManagerScreen = ({ navigation }) => {
       </View>
 
       {/* Tabs Grid */}
-      <FlatList
-        data={tabs}
-        renderItem={renderTabCard}
-        keyExtractor={item => item.id}
-        numColumns={2}
-        contentContainerStyle={styles.listContent}
-        columnWrapperStyle={styles.columnWrapper}
-      />
+      <ScrollView contentContainerStyle={styles.listContent}>
+        {tabGroups && tabGroups.length > 0 && (
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 12, marginLeft: 4, letterSpacing: 1 }}>TAB GROUPS</Text>
+            {tabGroups.map(group => {
+              const groupTabs = tabs.filter(t => t.groupId === group.id);
+              if (groupTabs.length === 0) {
+                // Render empty group or hide it
+                return null;
+              }
+              return (
+                <View key={group.id} style={{ marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{group.name}</Text>
+                    <TouchableOpacity onPress={() => deleteTabGroup(group.id)} style={{ padding: 4 }}>
+                      <Text style={{ fontSize: 12, color: theme.error || '#EF4444' }}>Ungroup</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.gridContainer}>
+                    {groupTabs.map(t => renderTabCard({ item: t }))}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 12, marginLeft: 4, letterSpacing: 1 }}>{tabGroups && tabGroups.length > 0 ? 'OTHER TABS' : 'ALL TABS'}</Text>
+        <View style={styles.gridContainer}>
+          {looseTabs.map(t => renderTabCard({ item: t }))}
+        </View>
+      </ScrollView>
 
       {/* Bottom Bar for creating new tabs */}
       <View style={[styles.bottomBar, { borderTopColor: theme.border, backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, 16) }]}>
+        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+          <TouchableOpacity onPress={handleGroupPrompt} style={[styles.newTabButton, { backgroundColor: theme.surfaceSecondary, borderWidth: 1, borderColor: theme.border, flex: 1 }]}>
+            <Ionicons name="folder-outline" size={18} color={theme.text} />
+            <Text style={[styles.newTabButtonText, { color: theme.text }]}>Group Active</Text>
+          </TouchableOpacity>
+        </View>
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <TouchableOpacity onPress={() => handleCreateTab(false)} style={[styles.newTabButton, { backgroundColor: theme.accent, flex: 1 }]}>
             <Ionicons name="add" size={22} color="#FFF" />
@@ -115,6 +166,37 @@ export const TabManagerScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Group Creation Modal */}
+      <Modal
+        visible={isGroupModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setGroupModalVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 24 }}>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: theme.text, marginBottom: 16 }}>New Tab Group</Text>
+            <TextInput
+              style={{ backgroundColor: theme.surfaceSecondary, color: theme.text, height: 44, borderRadius: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: theme.border, marginBottom: 24 }}
+              placeholder="Group Name"
+              placeholderTextColor={theme.textSecondary}
+              value={newGroupName}
+              onChangeText={setNewGroupName}
+              autoFocus
+              onSubmitEditing={submitNewGroup}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
+              <TouchableOpacity onPress={() => setGroupModalVisible(false)} style={{ paddingVertical: 8, paddingHorizontal: 16 }}>
+                <Text style={{ color: theme.textSecondary, fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={submitNewGroup} style={{ backgroundColor: theme.accent, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6 }}>
+                <Text style={{ color: '#FFF', fontWeight: '600' }}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -141,9 +223,10 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
   },
-  columnWrapper: {
-    justifyContent: 'space-between',
-    marginBottom: 16,
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
   },
   card: {
     width: CARD_WIDTH,

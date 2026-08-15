@@ -1,17 +1,17 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 import { colors } from './colors';
-import { StorageManager } from '../services/StorageManager';
+import { PreferenceStorage } from '../services/StorageManager';
 
 const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
   const systemColorScheme = useColorScheme();
-  const [themeMode, setThemeModeState] = useState('dark'); // Default to dark
+  const [themeMode, setThemeModeState] = useState('light'); // Default to light
 
   useEffect(() => {
     const loadTheme = async () => {
-      const savedTheme = await StorageManager.get('theme_preference', 'dark');
+      const savedTheme = await PreferenceStorage.get('theme_preference', 'light');
       setThemeModeState(savedTheme);
     };
     loadTheme();
@@ -19,7 +19,7 @@ export const ThemeProvider = ({ children }) => {
 
   const setThemeMode = async (mode) => {
     setThemeModeState(mode);
-    await StorageManager.save('theme_preference', mode);
+    await PreferenceStorage.save('theme_preference', mode);
   };
 
   // Determine if active mode is dark

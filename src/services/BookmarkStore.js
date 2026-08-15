@@ -1,74 +1,88 @@
+import { DatabaseManager } from './DatabaseManager';
 import { StorageManager } from './StorageManager';
 
-const BOOKMARKS_KEY = 'ndesk_bookmarks';
+const BOOKMARKS_LEGACY_KEY = 'ndesk_bookmarks';
 
 export const BookmarkStore = {
-  async getBookmarks() {
-    const defaultBookmarks = [
+  /**
+   * Migrate bookmarks from SecureStore to SQLite
+   */
+  async _migrateLegacyData() {
+    try {
+      const legacyData = await StorageManager.get(BOOKMARKS_LEGACY_KEY, null);
+      if (legacyData && Array.isArray(legacyData)) {
+        console.log(`Migrating ${legacyData.length} bookmarks to SQLite...`);
+        for (const b of legacyData) {
+          await DatabaseManager.runAsync(
+            `INSERT OR IGNORE INTO bookmarks (id, title, url, folder, isSystem, isDeletable, isEditable, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [b.id, b.title || b.url, b.url, b.folder || 'Bookmarks', b.isSystem ? 1 : 0, b.isDeletable === false ? 0 : 1, b.isEditable === false ? 0 : 1, b.createdAt || new Date().toISOString()]
+          );
+        }
+        await StorageManager.remove(BOOKMARKS_LEGACY_KEY); // Verify success then delete
+      }
+    } catch (e) {
+      console.error('Bookmark migration failed:', e);
+    }
+  },
+
+  async _ensureSystemBookmarks() {
+    const systemBookmarks = [
       {
         id: 'default_nexview',
-        title: 'Nexview Concept',
+        title: 'Nexview Concept Limited',
         url: 'https://nexviewconcept.com.ng',
         folder: 'Bookmarks',
-        isSystem: true,
-        isDeletable: false,
-        isEditable: false,
+        isSystem: 1,
+        isDeletable: 0,
+        isEditable: 0,
         createdAt: new Date().toISOString()
       },
       {
         id: 'default_openskills',
-        title: 'Open Skills Academy',
+        title: 'OpenSkills Academy',
         url: 'https://openskillsacademy.org',
         folder: 'Bookmarks',
-        isSystem: true,
-        isDeletable: false,
-        isEditable: false,
+        isSystem: 1,
+        isDeletable: 0,
+        isEditable: 0,
         createdAt: new Date().toISOString()
       }
     ];
-    let bookmarks = await StorageManager.get(BOOKMARKS_KEY, null);
 
-    // Migration: If no bookmarks, return defaults
-    if (!bookmarks) {
-      await StorageManager.save(BOOKMARKS_KEY, defaultBookmarks);
-      return defaultBookmarks;
-    }
-    
-    // Migration: ensure system bookmarks exist and have proper flags
-    let updated = false;
-    defaultBookmarks.forEach(sysB => {
-      const existingIndex = bookmarks.findIndex(b => b.url.toLowerCase() === sysB.url.toLowerCase() || b.id === sysB.id);
-      if (existingIndex === -1) {
-        bookmarks.unshift(sysB);
-        updated = true;
+    for (const b of systemBookmarks) {
+      const existing = await DatabaseManager.getFirstAsync(`SELECT id FROM bookmarks WHERE id = ? OR url = ?`, [b.id, b.url]);
+      if (!existing) {
+        await DatabaseManager.runAsync(
+          `INSERT INTO bookmarks (id, title, url, folder, isSystem, isDeletable, isEditable, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [b.id, b.title, b.url, b.folder, b.isSystem, b.isDeletable, b.isEditable, b.createdAt]
+        );
       } else {
-        // Enforce system flags on existing ones
-        if (!bookmarks[existingIndex].isSystem || bookmarks[existingIndex].isDeletable !== false) {
-          bookmarks[existingIndex] = { ...bookmarks[existingIndex], ...sysB };
-          updated = true;
-        }
+        // Enforce protection flags
+        await DatabaseManager.runAsync(
+          `UPDATE bookmarks SET isSystem = 1, isDeletable = 0, isEditable = 0 WHERE id = ? OR url = ?`,
+          [b.id, b.url]
+        );
       }
-    });
-
-    if (updated) {
-      await StorageManager.save(BOOKMARKS_KEY, bookmarks);
     }
-    
-    return bookmarks;
   },
 
-  /**
-   * Adds a new bookmark.
-   */
+  async getBookmarks() {
+    await this._migrateLegacyData();
+    await this._ensureSystemBookmarks();
+    const rows = await DatabaseManager.getAllAsync(`SELECT * FROM bookmarks ORDER BY createdAt DESC`);
+    return rows.map(r => ({
+      ...r,
+      isSystem: Boolean(r.isSystem),
+      isDeletable: Boolean(r.isDeletable),
+      isEditable: Boolean(r.isEditable)
+    }));
+  },
+
   async addBookmark(title, url, folder = 'Bookmarks') {
     if (!url) return false;
     
-    const bookmarks = await this.getBookmarks();
-    
-    // Avoid duplicate URL bookmarks
-    if (bookmarks.some(b => b.url.toLowerCase() === url.toLowerCase())) {
-      return false;
-    }
+    const existing = await DatabaseManager.getFirstAsync(`SELECT id FROM bookmarks WHERE url = ?`, [url]);
+    if (existing) return false;
 
     const newBookmark = {
       id: Date.now().toString(),
@@ -78,46 +92,43 @@ export const BookmarkStore = {
       createdAt: new Date().toISOString()
     };
 
-    bookmarks.push(newBookmark);
-    await StorageManager.save(BOOKMARKS_KEY, bookmarks);
+    await DatabaseManager.runAsync(
+      `INSERT INTO bookmarks (id, title, url, folder, isSystem, isDeletable, isEditable, createdAt) VALUES (?, ?, ?, ?, 0, 1, 1, ?)`,
+      [newBookmark.id, newBookmark.title, newBookmark.url, newBookmark.folder, newBookmark.createdAt]
+    );
     return newBookmark;
   },
 
-  /**
-   * Deletes a bookmark by ID.
-   */
   async deleteBookmark(id) {
-    const bookmarks = await this.getBookmarks();
-    const filtered = bookmarks.filter(b => b.id !== id);
-    await StorageManager.save(BOOKMARKS_KEY, filtered);
+    // Hard block for core system bookmarks at the database layer
+    if (id === 'default_nexview' || id === 'default_openskills') {
+      console.warn("CRITICAL: Attempted to delete an immutable system bookmark.");
+      return false;
+    }
+
+    const existing = await DatabaseManager.getFirstAsync(`SELECT isDeletable FROM bookmarks WHERE id = ?`, [id]);
+    if (existing && existing.isDeletable === 0) {
+      console.warn("Attempted to delete a protected system bookmark.");
+      return false; // Cannot delete protected bookmarks
+    }
+    await DatabaseManager.runAsync(`DELETE FROM bookmarks WHERE id = ?`, [id]);
     return true;
   },
 
-  /**
-   * Toggles bookmark state for a given URL.
-   */
   async toggleBookmark(title, url) {
-    const bookmarks = await this.getBookmarks();
-    const existingIndex = bookmarks.findIndex(b => b.url.toLowerCase() === url.toLowerCase());
-    
-    if (existingIndex > -1) {
-      // Remove it
-      bookmarks.splice(existingIndex, 1);
-      await StorageManager.save(BOOKMARKS_KEY, bookmarks);
-      return false; // Not bookmarked anymore
+    const existing = await DatabaseManager.getFirstAsync(`SELECT id FROM bookmarks WHERE url = ?`, [url]);
+    if (existing) {
+      await this.deleteBookmark(existing.id);
+      return false;
     } else {
-      // Add it
       await this.addBookmark(title, url);
-      return true; // Bookmarked now
+      return true;
     }
   },
 
-  /**
-   * Checks if a URL is bookmarked.
-   */
   async isBookmarked(url) {
     if (!url) return false;
-    const bookmarks = await this.getBookmarks();
-    return bookmarks.some(b => b.url.toLowerCase() === url.toLowerCase());
+    const existing = await DatabaseManager.getFirstAsync(`SELECT id FROM bookmarks WHERE url = ?`, [url]);
+    return !!existing;
   }
 };

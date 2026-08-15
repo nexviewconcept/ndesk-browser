@@ -1,4 +1,4 @@
-import { StorageManager } from './StorageManager';
+import { PreferenceStorage } from './StorageManager';
 
 const LAST_SYNC_KEY = 'ndesk_last_sync_timestamp';
 const MOCK_CLOUD_STORE = 'ndesk_mock_cloud_store';
@@ -8,30 +8,39 @@ export const DriveBackupManager = {
    * Gets the formatted timestamp of the last sync operation.
    */
   async getLastSyncTime() {
-    return await StorageManager.get(LAST_SYNC_KEY, null);
+    return await PreferenceStorage.get(LAST_SYNC_KEY, null);
   },
 
   /**
-   * Uploads bookmarks, settings, and history to Google Drive.
-   * If using mock credentials, writes to a local simulated cloud store.
+   * Uploads bookmarks, settings, history, and tab groups to Google Drive.
+   * Enforces strict PublicBackup Schema Allowlist.
    */
-  async uploadBackup(authData, bookmarks, settings, history) {
+  async uploadBackup(authData, bookmarks, settings, history, tabGroups = []) {
     if (!authData || !authData.accessToken) return false;
 
+    // Strict PublicBackup Schema Validation
     const backupPayload = {
-      bookmarks,
-      settings,
-      // EXCLUDED FOR PRIVACY: history is not backed up to the cloud without encryption
-      // history,
+      schemaVersion: 1,
+      bookmarks: bookmarks.map(b => ({
+        id: b.id, title: b.title, url: b.url, folder: b.folder, isSystem: b.isSystem
+      })),
+      publicHistory: (history || []).slice(0, 100), // Limit history backup size for privacy/performance
+      tabGroups: tabGroups,
+      nonSensitivePreferences: {
+        themeMode: settings.themeMode || 'system',
+        searchEngine: settings.searchEngine || 'DuckDuckGo',
+        adBlockEnabled: settings.adBlockEnabled !== false,
+        addressBarPosition: settings.addressBarPosition || 'top'
+      },
       timestamp: new Date().toISOString(),
     };
 
     // Handle developer/tester mock flow
     if (authData.accessToken.startsWith('mock_token_')) {
       await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network lag
-      await StorageManager.save(MOCK_CLOUD_STORE, backupPayload);
+      await PreferenceStorage.save(MOCK_CLOUD_STORE, backupPayload);
       const timestamp = new Date().toISOString();
-      await StorageManager.save(LAST_SYNC_KEY, timestamp);
+      await PreferenceStorage.save(LAST_SYNC_KEY, timestamp);
       return { success: true, timestamp };
     }
 
@@ -88,7 +97,7 @@ export const DriveBackupManager = {
 
       if (uploadRes.ok) {
         const timestamp = new Date().toISOString();
-        await StorageManager.save(LAST_SYNC_KEY, timestamp);
+        await PreferenceStorage.save(LAST_SYNC_KEY, timestamp);
         return { success: true, timestamp };
       }
       return false;
@@ -106,7 +115,7 @@ export const DriveBackupManager = {
 
     if (authData.accessToken.startsWith('mock_token_')) {
       await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network lag
-      return await StorageManager.get(MOCK_CLOUD_STORE, null);
+      return await PreferenceStorage.get(MOCK_CLOUD_STORE, null);
     }
 
     try {

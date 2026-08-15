@@ -1,4 +1,4 @@
-import { StorageManager } from './StorageManager';
+import { PreferenceStorage } from './StorageManager';
 
 const PRIVACY_SETTINGS_KEY = 'ndesk_privacy_settings';
 
@@ -9,7 +9,8 @@ const DEFAULT_SETTINGS = {
   cookiePolicy: 'no-third-party',
   searchEngine: 'Google', // Changed to Google as requested
   customUserAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-  googleClientId: '897737077020-j4se6psb0c48tjlt0i408mo4pnhstg99.apps.googleusercontent.com'
+  googleClientId: '897737077020-j4se6psb0c48tjlt0i408mo4pnhstg99.apps.googleusercontent.com',
+  addressBarPosition: 'bottom'
 };
 
 const USER_AGENTS = [
@@ -23,7 +24,7 @@ export const PrivacyManager = {
    * Retrieves the current privacy settings.
    */
   async getSettings() {
-    const settings = await StorageManager.get(PRIVACY_SETTINGS_KEY, DEFAULT_SETTINGS);
+    const settings = await PreferenceStorage.get(PRIVACY_SETTINGS_KEY, DEFAULT_SETTINGS);
     return { ...DEFAULT_SETTINGS, ...settings };
   },
 
@@ -33,7 +34,7 @@ export const PrivacyManager = {
   async updateSetting(key, value) {
     const settings = await this.getSettings();
     settings[key] = value;
-    await StorageManager.save(PRIVACY_SETTINGS_KEY, settings);
+    await PreferenceStorage.save(PRIVACY_SETTINGS_KEY, settings);
     return settings;
   },
 

@@ -63,6 +63,9 @@ export const BrowserScreen = ({ navigation }) => {
   const [autofillSuggestions, setAutofillSuggestions] = useState([]);
   const [showAutofill, setShowAutofill] = useState(false);
 
+  // Address Bar Suggestions
+  const [urlSuggestions, setUrlSuggestions] = useState([]);
+
   // Homepage States
   const [homeBookmarks, setHomeBookmarks] = useState([]);
   const [homeHistory, setHomeHistory] = useState([]);
@@ -133,6 +136,35 @@ export const BrowserScreen = ({ navigation }) => {
       loadHomeData();
     }
   }, [activeTab.id, activeTab.url]);
+
+  // URL Suggestions Fetcher
+  useEffect(() => {
+    if (isEditingUrl && urlInput && urlInput.length > 0 && !isTabIncognito) {
+      const fetchSuggestions = async () => {
+         const history = await HistoryStore.getHistory();
+         const bookmarks = await BookmarkStore.getBookmarks();
+         
+         const q = urlInput.toLowerCase();
+         const matches = [...bookmarks, ...history].filter(item => 
+           (item.title && item.title.toLowerCase().includes(q)) || 
+           (item.url && item.url.toLowerCase().includes(q))
+         );
+         
+         const unique = [];
+         const urls = new Set();
+         for (const m of matches) {
+           if (!urls.has(m.url)) {
+             urls.add(m.url);
+             unique.push(m);
+           }
+         }
+         setUrlSuggestions(unique.slice(0, 8));
+      };
+      fetchSuggestions();
+    } else {
+      setUrlSuggestions([]);
+    }
+  }, [urlInput, isEditingUrl, isTabIncognito]);
 
   // Load privacy settings
   const loadPrivacySettings = async () => {
@@ -205,6 +237,14 @@ export const BrowserScreen = ({ navigation }) => {
   useEffect(() => {
     if (activeTab?.isIncognito && !isIncognitoUnlocked) {
       authenticatePrivateSession();
+      // Pause any playing media when locked
+      const pauseMediaJs = `
+        try {
+          document.querySelectorAll('video, audio').forEach(media => media.pause());
+        } catch(e) {}
+        true;
+      `;
+      webViewRef.current?.injectJavaScript(pauseMediaJs);
     }
   }, [activeTab?.isIncognito, isIncognitoUnlocked]);
 
@@ -385,12 +425,112 @@ export const BrowserScreen = ({ navigation }) => {
   const activeTextColor = isTabIncognito ? '#A78BFA' : theme.text;
   const showIncognitoStart = isTabIncognito && activeTab.url === 'about:blank';
 
+  const renderAddressBar = () => {
+    return (
+      <>
+        {/* URL Input Bar */}
+        <View style={[styles.urlBar, { backgroundColor: isTabIncognito ? '#1e1e1e' : theme.surfaceSecondary }]}>
+          {isTabIncognito && (
+            <Ionicons name="eye-off" size={16} color="#A78BFA" style={{ marginRight: 8 }} />
+          )}
+          {privacySettings?.adBlockEnabled && blockedTrackersCount > 0 && (
+            <View style={styles.shieldBadge}>
+              <Ionicons name="shield-checkmark" size={13} color="#10B981" />
+              <Text style={styles.shieldCount}>{blockedTrackersCount}</Text>
+            </View>
+          )}
+          <TextInput
+            style={[styles.urlInput, { color: isTabIncognito ? '#FFF' : theme.text }]}
+            value={urlInput}
+            onChangeText={setUrlInput}
+            onFocus={() => setIsEditingUrl(true)}
+            onBlur={() => setIsEditingUrl(false)}
+            onSubmitEditing={() => handleUrlSubmit()}
+            placeholder="Search or enter URL"
+            placeholderTextColor={theme.textSecondary}
+            selectTextOnFocus
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="web-search"
+          />
+          {urlInput && isEditingUrl ? (
+            <TouchableOpacity onPress={() => setUrlInput('')} style={styles.clearButton}>
+              <Ionicons name="close-circle" size={16} color={theme.textSecondary} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity 
+              onPress={() => loading ? webViewRef.current?.stopLoading() : webViewRef.current?.reload()} 
+              style={styles.clearButton}
+            >
+              <Ionicons name={loading ? "close" : "refresh"} size={18} color={theme.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Toolbar Buttons */}
+        <View style={styles.toolbar}>
+          <TouchableOpacity
+            disabled={!activeTab.canGoBack}
+            onPress={() => webViewRef.current?.goBack()}
+            style={styles.toolButton}
+          >
+            <Ionicons
+              name="chevron-back"
+              size={24}
+              color={activeTab.canGoBack ? activeTextColor : theme.border}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            disabled={!activeTab.canGoForward}
+            onPress={() => webViewRef.current?.goForward()}
+            style={styles.toolButton}
+          >
+            <Ionicons
+              name="chevron-forward"
+              size={24}
+              color={activeTab.canGoForward ? activeTextColor : theme.border}
+            />
+          </TouchableOpacity>
+
+          {/* AI Sparkle Button */}
+          <TouchableOpacity onPress={() => setIsAiOpen(true)} style={[styles.toolButton, styles.aiButton, { backgroundColor: isTabIncognito ? '#2A2050' : theme.surfaceSecondary }]}>
+            <Ionicons name="sparkles" size={20} color={isTabIncognito ? '#C4B5FD' : theme.accent} />
+          </TouchableOpacity>
+
+          {/* New Tab Shortcut Button */}
+          <TouchableOpacity onPress={() => addTab()} style={styles.toolButton}>
+            <Ionicons name="add-circle-outline" size={25} color={activeTextColor} />
+          </TouchableOpacity>
+
+          {/* Tab Manager Toggle Button */}
+          <TouchableOpacity onPress={() => navigation.navigate('TabManager')} style={styles.toolButton}>
+            <View style={[styles.tabBadge, { borderColor: activeTextColor }]}>
+              <Text style={[styles.tabCountText, { color: activeTextColor }]}>{tabs.length}</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Settings Menu Button */}
+          <TouchableOpacity onPress={() => setIsMenuOpen(true)} style={styles.toolButton}>
+            <Ionicons name="ellipsis-horizontal" size={24} color={activeTextColor} />
+          </TouchableOpacity>
+        </View>
+      </>
+    );
+  };
+
   return (
     <KeyboardAvoidingView 
       style={[styles.container, { backgroundColor: activeBgColor, paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <StatusBar barStyle={isDark || isTabIncognito ? 'light-content' : 'dark-content'} />
+
+      {privacySettings?.addressBarPosition === 'top' && !showIncognitoStart && (
+        <View style={[styles.bottomBar, { backgroundColor: activeThemeColor, borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
+          {renderAddressBar()}
+        </View>
+      )}
 
       {/* Security Biometric Lock Screen */}
       {isLocked && (
@@ -413,7 +553,7 @@ export const BrowserScreen = ({ navigation }) => {
             style={{ marginTop: 20, paddingVertical: 10, paddingHorizontal: 20 }}
           >
             <Text style={{ color: '#A78BFA', fontWeight: '600', fontSize: 14, textDecorationLine: 'underline' }}>
-              Koma zuwa Public Tabs
+              Switch to Public Tabs
             </Text>
           </TouchableOpacity>
         </View>
@@ -436,6 +576,36 @@ export const BrowserScreen = ({ navigation }) => {
 
       {/* Main WebView area / Private Search start screen */}
       <View style={styles.webContainer} {...swipeHandlers}>
+        {isEditingUrl && !isTabIncognito && (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.background, zIndex: 100 }]}>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {urlSuggestions.map((item, idx) => (
+                <TouchableOpacity 
+                  key={idx} 
+                  style={{ flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: theme.border }}
+                  onPress={() => {
+                    setUrlInput(item.url);
+                    handleUrlSubmit(item.url);
+                  }}
+                >
+                  <Ionicons name={item.isSystem ? "bookmark" : "time-outline"} size={20} color={theme.textSecondary} style={{ marginRight: 16 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text numberOfLines={1} style={{ color: theme.text, fontSize: 14, fontWeight: '500' }}>{item.title || item.url}</Text>
+                    <Text numberOfLines={1} style={{ color: theme.textSecondary, fontSize: 12, marginTop: 4 }}>{item.url}</Text>
+                  </View>
+                  <Ionicons name="arrow-up-left" size={20} color={theme.border} />
+                </TouchableOpacity>
+              ))}
+              {urlSuggestions.length === 0 && urlInput.length > 0 && (
+                <View style={{ padding: 24, alignItems: 'center' }}>
+                  <Ionicons name="search" size={32} color={theme.border} style={{ marginBottom: 12 }} />
+                  <Text style={{ color: theme.textSecondary }}>Search for "{urlInput}"</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        )}
+
         {showIncognitoStart ? (
           <View style={{ flex: 1, backgroundColor: '#0A0516', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
             <Ionicons name="shield-half" size={72} color="#8B5CF6" style={{ marginBottom: 16 }} />
@@ -600,96 +770,11 @@ export const BrowserScreen = ({ navigation }) => {
       )}
 
       {/* Bottom Bar: Address Input + Toolbar (One-Handed design) */}
-      <View style={[styles.bottomBar, { backgroundColor: activeThemeColor, borderTopColor: theme.border, paddingBottom: Math.max(insets.bottom, 10) }]}>
-        
-        {/* URL Input Bar */}
-        <View style={[styles.urlBar, { backgroundColor: isTabIncognito ? '#1e1e1e' : theme.surfaceSecondary }]}>
-          {isTabIncognito && (
-            <Ionicons name="eye-off" size={16} color="#A78BFA" style={{ marginRight: 8 }} />
-          )}
-          {privacySettings?.adBlockEnabled && blockedTrackersCount > 0 && (
-            <View style={styles.shieldBadge}>
-              <Ionicons name="shield-checkmark" size={13} color="#10B981" />
-              <Text style={styles.shieldCount}>{blockedTrackersCount}</Text>
-            </View>
-          )}
-          <TextInput
-            style={[styles.urlInput, { color: isTabIncognito ? '#FFF' : theme.text }]}
-            value={urlInput}
-            onChangeText={setUrlInput}
-            onFocus={() => setIsEditingUrl(true)}
-            onBlur={() => setIsEditingUrl(false)}
-            onSubmitEditing={() => handleUrlSubmit()}
-            placeholder="Search or enter URL"
-            placeholderTextColor={theme.textSecondary}
-            selectTextOnFocus
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="web-search"
-          />
-          {urlInput && isEditingUrl ? (
-            <TouchableOpacity onPress={() => setUrlInput('')} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={16} color={theme.textSecondary} />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity 
-              onPress={() => loading ? webViewRef.current?.stopLoading() : webViewRef.current?.reload()} 
-              style={styles.clearButton}
-            >
-              <Ionicons name={loading ? "close" : "refresh"} size={18} color={theme.textSecondary} />
-            </TouchableOpacity>
-          )}
+      {privacySettings?.addressBarPosition !== 'top' && (
+        <View style={[styles.bottomBar, { backgroundColor: activeThemeColor, borderTopColor: theme.border, paddingBottom: Math.max(insets.bottom, 10) }]}>
+          {renderAddressBar()}
         </View>
-
-        {/* Toolbar Buttons */}
-        <View style={styles.toolbar}>
-          <TouchableOpacity
-            disabled={!activeTab.canGoBack}
-            onPress={() => webViewRef.current?.goBack()}
-            style={styles.toolButton}
-          >
-            <Ionicons
-              name="chevron-back"
-              size={24}
-              color={activeTab.canGoBack ? activeTextColor : theme.border}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            disabled={!activeTab.canGoForward}
-            onPress={() => webViewRef.current?.goForward()}
-            style={styles.toolButton}
-          >
-            <Ionicons
-              name="chevron-forward"
-              size={24}
-              color={activeTab.canGoForward ? activeTextColor : theme.border}
-            />
-          </TouchableOpacity>
-
-          {/* AI Sparkle Button */}
-          <TouchableOpacity onPress={() => setIsAiOpen(true)} style={[styles.toolButton, styles.aiButton, { backgroundColor: isTabIncognito ? '#2A2050' : theme.surfaceSecondary }]}>
-            <Ionicons name="sparkles" size={20} color={isTabIncognito ? '#C4B5FD' : theme.accent} />
-          </TouchableOpacity>
-
-          {/* New Tab Shortcut Button */}
-          <TouchableOpacity onPress={() => addTab()} style={styles.toolButton}>
-            <Ionicons name="add-circle-outline" size={25} color={activeTextColor} />
-          </TouchableOpacity>
-
-          {/* Tab Manager Toggle Button */}
-          <TouchableOpacity onPress={() => navigation.navigate('TabManager')} style={styles.toolButton}>
-            <View style={[styles.tabBadge, { borderColor: activeTextColor }]}>
-              <Text style={[styles.tabCountText, { color: activeTextColor }]}>{tabs.length}</Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Settings Menu Button */}
-          <TouchableOpacity onPress={() => setIsMenuOpen(true)} style={styles.toolButton}>
-            <Ionicons name="ellipsis-horizontal" size={24} color={activeTextColor} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      )}
 
       {/* Menu Overlay */}
       <Modal

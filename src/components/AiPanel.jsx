@@ -10,7 +10,8 @@ import {
   Dimensions,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
@@ -33,9 +34,11 @@ export const AiPanel = ({ isVisible, onClose, currentUrl, currentTitle, privacyS
 
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const scrollViewRef = useRef();
+  const [hasConsented, setHasConsented] = useState(false);
 
   useEffect(() => {
     if (isVisible) {
+      setHasConsented(false);
       animations.slide(slideAnim, 0, 300).start();
     } else {
       animations.slide(slideAnim, SCREEN_HEIGHT, 250).start();
@@ -53,14 +56,40 @@ export const AiPanel = ({ isVisible, onClose, currentUrl, currentTitle, privacyS
     const text = textToSend || query;
     if (!text.trim()) return;
 
-    if (!textToSend) setQuery('');
+    const provider = privacySettings?.aiProvider || 'HuggingFace';
+
+    if (!hasConsented) {
+      Alert.alert(
+        'Privacy Consent Required',
+        `To process your request, the text of this webpage will be sent to ${provider}. NDesk does not store this data. Do you consent to sending this page's content?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'I Consent', 
+            onPress: () => {
+              setHasConsented(true);
+              executeSend(text, provider);
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    executeSend(text, provider);
+  };
+
+  const executeSend = async (text, provider) => {
+    if (!query && !text) return;
+    
+    // Clear input if sending from TextInput
+    if (query === text) setQuery('');
     
     const userMsg = { id: Date.now().toString(), text, isBot: false };
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
 
     const context = `Webpage Title: ${currentTitle || 'Unknown'}\nWebpage URL: ${currentUrl || 'about:blank'}`;
-    const provider = privacySettings?.aiProvider || 'HuggingFace';
     const apiKey = await AiKeyManager.getUserKey(provider);
 
     try {

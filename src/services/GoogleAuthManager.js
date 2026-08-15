@@ -1,6 +1,6 @@
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import { StorageManager } from './StorageManager';
+import { SecureStorage } from './StorageManager';
 
 // Completed browser-based auth session
 WebBrowser.maybeCompleteAuthSession();
@@ -12,21 +12,21 @@ export const GoogleAuthManager = {
    * Retrieves active authentication data.
    */
   async getAuthData() {
-    return await StorageManager.get(GOOGLE_AUTH_KEY, null);
+    return await SecureStorage.get(GOOGLE_AUTH_KEY, null);
   },
 
   /**
    * Saves authentication data.
    */
   async saveAuthData(data) {
-    await StorageManager.save(GOOGLE_AUTH_KEY, data);
+    await SecureStorage.save(GOOGLE_AUTH_KEY, data);
   },
 
   /**
    * Clears authentication data (signs out).
    */
   async signOut() {
-    await StorageManager.remove(GOOGLE_AUTH_KEY);
+    await SecureStorage.remove(GOOGLE_AUTH_KEY);
     return true;
   },
 
