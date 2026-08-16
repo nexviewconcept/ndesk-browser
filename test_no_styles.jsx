@@ -234,13 +234,13 @@ export const SettingsScreen = ({ navigation }) => {
         const fileContent = await FileSystem.readAsStringAsync(fileUri);
         
         // Basic regex to find <a href="URL">TITLE</a>
-        const aTagRegex = new RegExp('<a\\s+(?:[^>]*?\\s+)?href=["\'](.*?)["\'][^>]*>(.*?)<\\/a>', 'gi');
+        const aTagRegex = /<a\s+(?:[^>]*?\s+)?href=["'](.*?)["'][^>]*>(.*?)<\/a>/gi;
         let match;
         let importCount = 0;
         
         while ((match = aTagRegex.exec(fileContent)) !== null) {
           const url = match[1];
-          const title = match[2].replace(new RegExp('<[^>]+>', 'g'), '').trim() || url;
+          const title = match[2].replace(/<[^>]+>/g, '').trim() || url;
           if (url && (url.startsWith('http') || url.startsWith('https'))) {
             await BookmarkStore.saveBookmark(url, title);
             importCount++;
@@ -293,8 +293,6 @@ export const SettingsScreen = ({ navigation }) => {
         }
       ]
     );
-  };
-
   const handleClearData = (type) => {
     let title = '';
     let message = '';
@@ -783,177 +781,3 @@ export const SettingsScreen = ({ navigation }) => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-  },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#8B5CF6',
-    marginBottom: 8,
-    marginLeft: 4,
-    letterSpacing: 1,
-  },
-  sectionGroup: {
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-    marginBottom: 24,
-  },
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-  },
-  labelWrapper: {
-    flex: 1,
-    marginRight: 10,
-  },
-  settingLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  settingDesc: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  segmentedButtons: {
-    flexDirection: 'row',
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  segBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  segBtnActive: {
-    shadowOpacity: 0.15,
-  },
-  segBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: 16,
-  },
-  apiInputContainer: {
-    padding: 16,
-  },
-  apiInputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  apiInput: {
-    height: 42,
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    fontSize: 13,
-  },
-  apiHelpText: {
-    fontSize: 10,
-    marginTop: 6,
-    lineHeight: 14,
-  },
-  profileWrapper: {
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  profileInfo: {
-    flex: 1,
-    marginRight: 8,
-  },
-  profileName: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  profileEmail: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  signOutBtn: {
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  signOutText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  loginWrapper: {
-    padding: 16,
-  },
-  loginHelp: {
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-  signInBtn: {
-    height: 44,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  signInText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  syncActions: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-  },
-  syncBtn: {
-    flex: 1,
-    height: 40,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  syncBtnText: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  syncTime: {
-    fontSize: 11,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  loginRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-});

@@ -632,7 +632,7 @@ export const BrowserScreen = ({ navigation }) => {
             <View style={{ alignItems: 'center', marginVertical: 32 }}>
               <View style={{ width: 64, height: 64, borderRadius: 16, marginBottom: 12, shadowColor: theme.accent, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4, overflow: 'hidden' }}>
                 <Image 
-                  source={isDark ? require('../../assets/icon2.png') : require('../../assets/icon.png')} 
+                  source={require('../../assets/icon.jpg')} 
                   style={{ width: '100%', height: '100%' }} 
                 />
               </View>

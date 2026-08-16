@@ -32,15 +32,7 @@ jobs:
       - name: Make Gradle Wrapper Executable
         run: chmod +x android/gradlew
 
-      - name: Configure Gradle Memory Limits
-        run: |
-          echo "org.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=512m" >> android/gradle.properties
-          echo "org.gradle.workers.max=1" >> android/gradle.properties
-          echo "org.gradle.parallel=false" >> android/gradle.properties
-
       - name: Build Android Release APK
-        env:
-          NODE_OPTIONS: "--max-old-space-size=2048"
         run: |
           cd android
           ./gradlew assembleRelease --stacktrace -x lintVitalRelease

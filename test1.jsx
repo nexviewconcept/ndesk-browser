@@ -234,13 +234,13 @@ export const SettingsScreen = ({ navigation }) => {
         const fileContent = await FileSystem.readAsStringAsync(fileUri);
         
         // Basic regex to find <a href="URL">TITLE</a>
-        const aTagRegex = new RegExp('<a\\s+(?:[^>]*?\\s+)?href=["\'](.*?)["\'][^>]*>(.*?)<\\/a>', 'gi');
+        const aTagRegex = /<a\s+(?:[^>]*?\s+)?href=["'](.*?)["'][^>]*>(.*?)<\/a>/gi;
         let match;
         let importCount = 0;
         
         while ((match = aTagRegex.exec(fileContent)) !== null) {
           const url = match[1];
-          const title = match[2].replace(new RegExp('<[^>]+>', 'g'), '').trim() || url;
+          const title = match[2].replace(/<[^>]+>/g, '').trim() || url;
           if (url && (url.startsWith('http') || url.startsWith('https'))) {
             await BookmarkStore.saveBookmark(url, title);
             importCount++;
@@ -293,8 +293,6 @@ export const SettingsScreen = ({ navigation }) => {
         }
       ]
     );
-  };
-
   const handleClearData = (type) => {
     let title = '';
     let message = '';
@@ -617,173 +615,10 @@ export const SettingsScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* Section 6: About & Help */}
-        <Text style={styles.sectionHeader}>ABOUT & HELP</Text>
-        <View style={[styles.sectionGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Privacy')}
-            style={styles.settingItem}
-          >
-            <View style={styles.labelWrapper}>
-              <Text style={[styles.settingLabel, { color: theme.text }]}>Privacy Center</Text>
-              <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>What we collect and how we protect you</Text>
-            </View>
-            <Ionicons name="shield-checkmark-outline" size={18} color={theme.textSecondary} />
-          </TouchableOpacity>
-          <View style={[styles.divider, { backgroundColor: theme.border }]} />
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Feedback')}
-            style={styles.settingItem}
-          >
-            <View style={styles.labelWrapper}>
-              <Text style={[styles.settingLabel, { color: theme.text }]}>Send Feedback</Text>
-              <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>Report bugs or suggest features</Text>
-            </View>
-            <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.textSecondary} />
-          </TouchableOpacity>
-          <View style={[styles.divider, { backgroundColor: theme.border }]} />
-          <TouchableOpacity
-            onPress={() => {
-              // Usually opens browser internally or externally
-            }}
-            style={styles.settingItem}
-          >
-            <View style={styles.labelWrapper}>
-              <Text style={[styles.settingLabel, { color: theme.text }]}>Developed by Nexview Concept Limited</Text>
-              <Text style={[styles.settingDesc, { color: theme.accent }]}>nexviewconcept.com.ng</Text>
-            </View>
-            <Ionicons name="open-outline" size={18} color={theme.accent} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Section 5: Autofill & Saved Passwords */}
-        <Text style={styles.sectionHeader}>AUTOFILL & PASSWORDS</Text>
-        <View style={[styles.sectionGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <TouchableOpacity
-            onPress={async () => {
-              if (!showLogins) {
-                try {
-                  const hasHardware = await LocalAuthentication.hasHardwareAsync();
-                  const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-                  if (hasHardware && isEnrolled) {
-                    const result = await LocalAuthentication.authenticateAsync({
-                      promptMessage: 'Authenticate to view saved passwords',
-                      fallbackLabel: 'Use Device PIN',
-                    });
-                    if (result.success) {
-                      setShowLogins(true);
-                    } else {
-                      Alert.alert('Authentication Failed', 'You must authenticate to view saved passwords.');
-                    }
-                  } else {
-                    // No biometrics available, just show it
-                    setShowLogins(true);
-                  }
-                } catch (e) {
-                  setShowLogins(true);
-                }
-              } else {
-                setShowLogins(false);
-              }
-            }}
-            style={styles.settingItem}
-          >
-            <View style={styles.labelWrapper}>
-              <Text style={[styles.settingLabel, { color: theme.text }]}>Saved Passwords</Text>
-              <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>{savedLogins.length} credential{savedLogins.length !== 1 ? 's' : ''} saved</Text>
-            </View>
-            <Ionicons
-              name={showLogins ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={theme.textSecondary}
-            />
-          </TouchableOpacity>
-
-          {showLogins && savedLogins.length > 0 && (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-              {savedLogins.map((login, idx) => (
-                <View
-                  key={login.id || idx}
-                  style={[styles.loginRow, { borderColor: theme.border }]}
-                >
-                  <Ionicons name="key-outline" size={16} color={theme.accent} style={{ marginRight: 8 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[{ color: theme.text, fontSize: 13, fontWeight: '600' }]}>{login.domain}</Text>
-                    <Text style={[{ color: theme.textSecondary, fontSize: 12 }]}>
-                      {login.username} • {login.password}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => handleDeleteLogin(login)}
-                    style={{ padding: 4 }}
-                  >
-                    <Ionicons name="trash-outline" size={16} color={theme.error || '#EF4444'} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {showLogins && savedLogins.length === 0 && (
-            <View style={{ padding: 16, alignItems: 'center' }}>
-              <Text style={{ color: theme.textSecondary, fontSize: 13 }}>No saved passwords yet. Passwords are saved when you sign in to websites.</Text>
-            </View>
-          )}
-
-          <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-          {/* Payment Cards */}
-          <TouchableOpacity
-            onPress={() => setShowCards(!showCards)}
-            style={styles.settingItem}
-          >
-            <View style={styles.labelWrapper}>
-              <Text style={[styles.settingLabel, { color: theme.text }]}>Payment Methods</Text>
-              <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>{savedCards.length} card{savedCards.length !== 1 ? 's' : ''} saved</Text>
-            </View>
-            <Ionicons
-              name={showCards ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={theme.textSecondary}
-            />
-          </TouchableOpacity>
-
-          {showCards && savedCards.length > 0 && (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-              {savedCards.map((card, idx) => (
-                <View
-                  key={card.id || idx}
-                  style={[styles.loginRow, { borderColor: theme.border }]}
-                >
-                  <Ionicons name="card-outline" size={16} color={theme.accent} style={{ marginRight: 8 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[{ color: theme.text, fontSize: 13, fontWeight: '600' }]}>{card.maskedNumber || '•••• ****'}</Text>
-                    <Text style={[{ color: theme.textSecondary, fontSize: 12 }]}>{card.cardHolder || 'Card holder'}{card.expiryDate ? ` • Exp: ${card.expiryDate}` : ''}</Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => handleDeleteCard(card)}
-                    style={{ padding: 4 }}
-                  >
-                    <Ionicons name="trash-outline" size={16} color={theme.error || '#EF4444'} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {showCards && savedCards.length === 0 && (
-            <View style={{ padding: 16, alignItems: 'center' }}>
-              <Text style={{ color: theme.textSecondary, fontSize: 13 }}>No payment cards saved yet.</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={{ height: 40 }} />
       </ScrollView>
     </View>
   );
 };
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
