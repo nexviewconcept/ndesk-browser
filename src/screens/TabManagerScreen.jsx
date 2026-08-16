@@ -26,6 +26,11 @@ export const TabManagerScreen = ({ navigation }) => {
 
   const [isGroupModalVisible, setGroupModalVisible] = React.useState(false);
   const [newGroupName, setNewGroupName] = React.useState('');
+  const [expandedGroups, setExpandedGroups] = React.useState({});
+
+  const toggleGroup = (id) => {
+    setExpandedGroups(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const handleSelectTab = (id) => {
     setActiveTabId(id);
@@ -116,25 +121,45 @@ export const TabManagerScreen = ({ navigation }) => {
       {/* Tabs Grid */}
       <ScrollView contentContainerStyle={styles.listContent}>
         {tabGroups && tabGroups.length > 0 && (
-          <View style={{ marginBottom: 24 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 12, marginLeft: 4, letterSpacing: 1 }}>TAB GROUPS</Text>
+          <View style={{ marginBottom: 24, paddingHorizontal: 16 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 16, letterSpacing: 1 }}>TAB GROUPS</Text>
             {tabGroups.map(group => {
               const groupTabs = tabs.filter(t => t.groupId === group.id);
-              if (groupTabs.length === 0) {
-                // Render empty group or hide it
-                return null;
-              }
+              if (groupTabs.length === 0) return null;
+              
+              const isExpanded = expandedGroups[group.id];
+              
               return (
-                <View key={group.id} style={{ marginBottom: 16 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{group.name}</Text>
-                    <TouchableOpacity onPress={() => deleteTabGroup(group.id)} style={{ padding: 4 }}>
-                      <Text style={{ fontSize: 12, color: theme.error || '#EF4444' }}>Ungroup</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.gridContainer}>
-                    {groupTabs.map(t => renderTabCard({ item: t }))}
-                  </View>
+                <View key={group.id} style={{ marginBottom: 16, backgroundColor: theme.surfaceSecondary, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: theme.border }}>
+                  <TouchableOpacity 
+                    onPress={() => toggleGroup(group.id)} 
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: theme.surfaceSecondary }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <View style={{ backgroundColor: theme.accent, width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons name="folder-open-outline" size={18} color="#FFF" />
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text }}>{group.name}</Text>
+                        <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>{groupTabs.length} {groupTabs.length === 1 ? 'tab' : 'tabs'}</Text>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <TouchableOpacity onPress={() => deleteTabGroup(group.id)} style={{ padding: 8, backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 8 }}>
+                        <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                      </TouchableOpacity>
+                      <View style={{ padding: 4 }}>
+                        <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={22} color={theme.textSecondary} />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  {isExpanded && (
+                    <View style={[styles.gridContainer, { padding: 16, paddingTop: 4, backgroundColor: theme.surfaceSecondary }]}>
+                      {groupTabs.map(t => renderTabCard({ item: t }))}
+                    </View>
+                  )}
                 </View>
               );
             })}

@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS = {
   cookiePolicy: 'no-third-party',
   searchEngine: 'Google', // Changed to Google as requested
   customUserAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-  googleClientId: '897737077020-j4se6psb0c48tjlt0i408mo4pnhstg99.apps.googleusercontent.com',
+  googleClientId: '',
   addressBarPosition: 'bottom'
 };
 

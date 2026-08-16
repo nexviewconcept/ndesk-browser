@@ -185,24 +185,26 @@ export const BrowserScreen = ({ navigation }) => {
   // Biometric / PIN Local Lock verification
   const authenticatePrivateSession = async () => {
     try {
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
-      if (hasHardware && isEnrolled) {
+      if (isEnrolled) {
         const result = await LocalAuthentication.authenticateAsync({
           promptMessage: 'NDesk Incognito Security Verification',
           fallbackLabel: 'Use Device PIN',
-          disableDeviceFallback: false,
         });
         if (result.success) {
           setIncognitoUnlocked(true);
         }
       } else {
-        // Fallback for devices without biometric enrollment
-        setIncognitoUnlocked(true);
+        Alert.alert(
+          "Security Warning",
+          "You must set up a screen lock (PIN/Password/Biometrics) on your device to securely lock Private Tabs.",
+          [{ text: "Continue Unlocked", onPress: () => setIncognitoUnlocked(true) }]
+        );
       }
     } catch (error) {
       console.error('Local authentication error:', error);
+      Alert.alert("Authentication Failed", "Could not verify your identity.");
       setIncognitoUnlocked(true);
     }
   };

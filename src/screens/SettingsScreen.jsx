@@ -663,9 +663,8 @@ export const SettingsScreen = ({ navigation }) => {
             onPress={async () => {
               if (!showLogins) {
                 try {
-                  const hasHardware = await LocalAuthentication.hasHardwareAsync();
                   const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-                  if (hasHardware && isEnrolled) {
+                  if (isEnrolled) {
                     const result = await LocalAuthentication.authenticateAsync({
                       promptMessage: 'Authenticate to view saved passwords',
                       fallbackLabel: 'Use Device PIN',
@@ -676,8 +675,11 @@ export const SettingsScreen = ({ navigation }) => {
                       Alert.alert('Authentication Failed', 'You must authenticate to view saved passwords.');
                     }
                   } else {
-                    // No biometrics available, just show it
-                    setShowLogins(true);
+                    Alert.alert(
+                      "Security Warning",
+                      "You must set up a screen lock on your device to protect your saved passwords.",
+                      [{ text: "Continue Unlocked", onPress: () => setShowLogins(true) }]
+                    );
                   }
                 } catch (e) {
                   setShowLogins(true);
