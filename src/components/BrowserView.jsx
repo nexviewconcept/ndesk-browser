@@ -108,12 +108,12 @@ export const BrowserView = ({
     })();
   `;
 
-  const injectedJavaScript = React.useMemo(() => \`
-    \${privacySettings?.adBlockEnabled ? TrackerBlocker.getAntiTrackingScript() : ''}
-    \${getAutofillInjectionScript()}
-    \${isDesktopMode ? getDesktopViewportScript() : ''}
+  const injectedJavaScript = React.useMemo(() => `
+    ${privacySettings?.adBlockEnabled ? TrackerBlocker.getAntiTrackingScript() : ''}
+    ${getAutofillInjectionScript()}
+    ${isDesktopMode ? getDesktopViewportScript() : ''}
     true;
-  \`, [privacySettings?.adBlockEnabled, isDesktopMode, zoomScale]);
+  `, [privacySettings?.adBlockEnabled, isDesktopMode, zoomScale]);
 
   // Memoize source to prevent reload loops when internal state changes but URL is identical
   const source = React.useMemo(() => ({ uri: url }), [url]);
