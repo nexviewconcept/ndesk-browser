@@ -18,7 +18,7 @@ function SplashScreenComponent({ onFinish }) {
     <View style={styles.splashContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0516" />
       <Image
-        source={require('./assets/splash.png')}
+        source={require('./assets/splash.jpg')}
         style={styles.splashImage}
         resizeMode="contain"
       />
